@@ -1,130 +1,101 @@
-export interface ICalculator {
-    calculate: (command: string) => number;
-}
+import Parser from "./Parser";
 
-export enum OperatorsEnum {
+enum OperatorsEnum {
     "*" = "*",
     "/" = "/",
     "+" = "+",
-    "-" = "-"
+    "-" = "-",
+    "(" = "("
 }
 
-class Calculator implements ICalculator {
-    private leftOperand: string | number | null;
-    private rightOperand: string | number | null;
-    private operator: OperatorsEnum | null;
-    private result: number;
-    private command: string;
+const OPERATORS_PRIORITIES = {
+    [OperatorsEnum["*"]]: 2,
+    [OperatorsEnum["/"]]: 2,
+    [OperatorsEnum["+"]]: 1,
+    [OperatorsEnum["-"]]: 1,
+}
 
-    calculate(command: string) {
-        this.initCalculator(command);
-        const firstOperationEnd = this.findOperationEnd(0);
-        this.calculateOperation(0, firstOperationEnd);
+class Calculator {
+    private readonly command: string;
+    private readonly operands: number[];
+    private readonly operators: OperatorsEnum[];
 
-        let start = firstOperationEnd;
-        while (start < this.command.length) {
-            const end = this.findOperationEnd(start);
-            this.calculateOperation(start, end);
-            start = end;
-        }
-
-        this.roundResult();
-        return this.result;
-    }
-
-    initCalculator(command: string) {
+    constructor(command: string) {
         this.command = command;
-        this.result = 0;
-        this.leftOperand = null;
-        this.rightOperand = null;
-        this.operator = null;
+        this.operands = [];
+        this.operators = [];
     }
 
-    findOperationEnd(start: number) {
-        let operatorIndex;
-        let itsBrackets = false;
+    calculate() {
+        const parser = new Parser(this.command);
+        parser.parse();
 
-        for (let i = start; i < this.command.length; i++) {
-            const symbolIsLast = i === this.command.length - 1;
-            const symbol = this.command[i];
-
-            if (symbol === "(") itsBrackets = true;
-            if (symbol === ")") itsBrackets = false;
-
-            if (!this.checkIsSymbolOperator(symbol) && !symbolIsLast) continue;
-            if (itsBrackets) continue;
-
-            if (operatorIndex) return symbolIsLast ? i + 1 : i;
-            operatorIndex = i;
-        }
-    }
-
-    checkIsSymbolOperator(symbol: string) {
-        return isNaN(+symbol) && symbol !== "." && symbol !== "," && symbol !== ")" && symbol !== "(";
-    }
-
-    calculateOperation(start: number, end: number) {
-        this.resetOperation();
-
-        const partCommand = this.command.slice(start, end);
-        for (let i = 0; i < partCommand.length; i++) {
-            this.parseSymbol(partCommand[i]);
+        while (parser.operand !== "" || parser.operator !== null) {
+            if (parser.operand !== "") {
+                this.calculateWithOperand(+parser.operand);
+            } else if (parser.operator === ")") {
+                this.calculateInBracketsOperations();
+            } else {
+                this.calculateWithOperator(parser.operator as OperatorsEnum);
+            }
+            parser.parse();
         }
 
-        this.calculateResult();
+        return this.calculateResult();
     }
 
-    resetOperation() {
-        this.leftOperand = this.result.toString();
-        this.rightOperand = null;
-        this.operator = null;
+    private calculateWithOperand(operand: number) {
+        this.operands.push(operand);
     }
 
-    parseSymbol(symbol: string) {
-        if (this.checkIsSymbolOperator(symbol)) {
-            this.operator = symbol as OperatorsEnum;
-            return;
-        }
-        if (!this.operator) {
-            this.leftOperand = this.leftOperand ? this.leftOperand + symbol : symbol;
+    private calculateWithOperator(operator: OperatorsEnum) {
+        if (this.operators.length === 0 || operator === "(") {
+            this.operators.push(operator);
             return;
         }
 
-        this.rightOperand = this.rightOperand ? this.rightOperand + symbol : symbol;
+        const lastOperator = this.operators[this.operators.length - 1];
+        if (lastOperator !== "(" && OPERATORS_PRIORITIES[operator] <= OPERATORS_PRIORITIES[lastOperator]) {
+            this.calculateOperation();
+            this.calculateWithOperator(operator);
+            return;
+        }
+        this.operators.push(operator);
     }
 
-    calculateResult() {
-        this.assertOperandsToNumber();
-        this.leftOperand = this.leftOperand as number;
-        this.rightOperand = this.rightOperand as number;
+    private calculateInBracketsOperations() {
+        while (this.operators[this.operators.length - 1] !== "(") {
+            this.calculateOperation()
+        }
+        this.operators.pop();
+    }
 
-        switch (this.operator) {
+    private calculateOperation() {
+        const [rightOperand, operator, leftOperand] = [this.operands.pop(), this.operators.pop(), this.operands.pop()]
+
+        let operationResult = 0;
+        switch (operator) {
             case OperatorsEnum["*"]:
-                this.result = this.leftOperand * this.rightOperand;
+                operationResult = leftOperand * rightOperand;
                 break;
             case OperatorsEnum["/"]:
-                this.result = this.leftOperand / this.rightOperand;
+                operationResult = leftOperand / rightOperand;
                 break;
             case OperatorsEnum["+"]:
-                this.result = this.leftOperand + this.rightOperand;
+                operationResult = leftOperand + rightOperand;
                 break;
             case OperatorsEnum["-"]:
-                this.result = this.leftOperand - this.rightOperand;
+                operationResult = leftOperand - rightOperand;
                 break;
         }
+        this.operands.push(operationResult);
     }
 
-    assertOperandsToNumber() {
-        if (this.leftOperand && typeof this.leftOperand !== "number") {
-            this.leftOperand = +(this.leftOperand.replace(",", "."));
+    private calculateResult() {
+        while (this.operators.length !== 0) {
+            this.calculateOperation();
         }
-        if (this.rightOperand && typeof this.rightOperand !== "number") {
-            this.rightOperand = +(this.rightOperand.replace(",", "."));
-        }
-    }
-
-    roundResult() {
-        this.result = +this.result.toFixed(4)
+        return +this.operands[0].toFixed(4);
     }
 }
 
